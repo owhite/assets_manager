@@ -1,0 +1,185 @@
+#!/usr/bin/env python3
+
+# https://docs.google.com/spreadsheets/d/1B1w7Rw_jkkneBYINoVJj-XBC1FlRZXuI3Y400rPBHKk/edit#gid=0
+
+import sys
+import re
+from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QLineEdit, QPushButton, QVBoxLayout, QHBoxLayout, QMessageBox
+import mysql.connector
+
+class LoginWindow(QWidget):
+    def __init__(self):
+        super().__init__()
+
+        self.forms = [
+            {
+                'Project':
+                [
+                {'Short_name': {'table': 'project', 'field': 'short_name', 'optional': True, 'searchable': False, 'list': None}}, 
+                {'Title': {'table': 'project', 'field': 'title', 'optional': True, 'searchable': False, 'list': None}}, 
+                {'Description': {'table': 'project', 'field': 'description', 'optional': True, 'searchable': False, 'list': None}}, 
+                {'Program': {'table': 'program', 'field': 'name', 'optional': True, 'searchable': True, 'list': None}}, 
+                {'Knowledgebase URL': {'table': 'proejct', 'field': 'url_knowledgebase', 'optional': True, 'searchable': False, 'list': None}}, 
+                {'Comment': {'table': 'project', 'field': 'comment', 'optional': True, 'searchable': False, 'list': None}}, 
+                {'Project type': {'table': None, 'field': None, 'optional': True, 'searchable': False, 'list': ['grant', 'study']}}, 
+                {'Lab name': {'table': 'lab', 'field': 'lab_name', 'optional': True, 'searchable': True, 'list': None}}, 
+                {'Contributors': {'table': 'contributor', 'field': 'name', 'optional': True, 'searchable': True, 'list': None}}, 
+                {'Is grant?': {'table': None, 'field': None, 'optional': True, 'searchable': False, 'list': ['yes', 'no']}}, 
+                {'Grant number?': {'table': 'grant_info', 'field': 'grant_number', 'optional': True, 'searchable': False, 'list': None}}, 
+                {'Funding agency': {'table': 'grant_info', 'field': 'funding_agency', 'optional': True, 'searchable': False, 'list': None}}, 
+                {'Description URL': {'table': 'grant_info', 'field': 'description_url', 'optional': True, 'searchable': False, 'list': None}}, 
+                {'Start date': {'table': 'grant_info', 'field': 'start_date', 'optional': True, 'searchable': False, 'list': None}}, 
+                {'End date': {'table': 'grant_info', 'field': 'end_date', 'optional': True, 'searchable': False, 'list': None}}, 
+                {'Lead PI Contributor ID': {'table': 'contributor', 'field': 'id', 'optional': True, 'searchable': True, 'list': None}}
+                ]
+            },
+            {
+                'Lab':
+                [
+                    {'Lab name': {'table': 'lab', 'field': 'lab_name', 'optional': False, 'searchable': False, 'list': None}}, 
+                    {'Lab PI Contributor ID': {'table': 'lab', 'field': 'lab_pi_contrib_id', 'optional': True, 'searchable': False, 'list': None}}
+                ]
+            }, 
+            {
+                'Contributor':
+                [
+                    {'Name': {'table': 'contributor', 'field': 'name', 'optional': False, 'searchable': False, 'list': None}}, 
+                    {'Email': {'table': 'contributor', 'field': 'email', 'optional': True, 'searchable': False, 'list': None}}, 
+                    {'ORCID ID': {'table': 'contributor', 'field': 'orchid_id', 'optional': True, 'searchable': False, 'list': None}}, 
+                    {'Organization': {'table': 'contributor', 'field': 'organization', 'optional': True, 'searchable': False, 'list': None}}, 
+                    {'Aspera Username': {'table': 'contributor', 'field': 'aspera_uname', 'optional': True, 'searchable': False, 'list': None}}, 
+                    {'Lab ID': {'table': 'contributor', 'field': 'lab_lab_id', 'optional': True, 'searchable': False, 'list': None}}, 
+                    {'Last name': {'table': 'contributor', 'field': 'lname', 'optional': True, 'searchable': False, 'list': None}}
+                ]
+            }
+        ]
+        self.links = [
+            {'program': [{'id': {'project': 'program_id'}}]},
+            {'project': [{'id': {'project_attributes': 'project_id'}},
+                         {'id': {'project_attributes': 'project_id'}},
+                         {'program_id': {'program': 'id'}},
+                         {'id': {'project_has_contributor': 'project_id'}},
+                         {'id': {'grant_info': 'project_id'}},
+                         {'id': {'file_assoc_project': 'project_id'}}]},
+            {'project_attributes': [{'project_id': {'project': 'id'}}]},
+            {'grant_info': [{'project_id': {'project': 'id'}},
+                            {'lead_contributor_id': {'contributor': 'id'}}]},
+            {'contributor': [{'id': {'grant_info': 'lead_contributor_id'}},
+                            {'lab_lab_id': {'lab': 'id'}}]}
+        ]
+
+        if self.conn:
+            d = self.get_schema_details(self.tables)
+            # print(d)
+
+        layout = QVBoxLayout()
+        layout.setContentsMargins(10, 10, 0, 0)  # Set layout margins to zero
+        layout.setSpacing(0)
+
+        label = QLabel('TABLE OPERATIONS', self)
+        layout.addWidget(label)
+
+        for table in self.tables:
+            row_widget = QWidget()  # Create a new widget for each row
+            row_layout = QHBoxLayout(row_widget)
+            row_layout.setSpacing(0)
+            row_layout.setContentsMargins(10, 5, 0, 0)  # Set layout margins to zero
+
+            label_table = QLabel(table, row_widget)
+            row_layout.addWidget(label_table)
+
+            b = QPushButton('Edit', row_widget)
+            b.setFixedWidth(80)
+            b.clicked.connect(lambda checked, name=table: self.edit_button_clicked(name))
+            row_layout.addWidget(b)
+
+            # b = QPushButton('Link', row_widget)
+            # b.setFixedWidth(80)
+            # b.clicked.connect(lambda checked, name=table: self.link_button_clicked(name))
+            # row_layout.addWidget(b)
+
+            layout.addWidget(row_widget)
+
+        self.setLayout(layout)
+
+    def edit_button_clicked(self, name):
+        print (f"edit button {name}")
+
+    def link_button_clicked(self, name):
+        print (f"link button {name}")
+
+    def get_table_schema(self, table_name):
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(f"DESCRIBE {table_name}")
+            schema = cursor.fetchall()
+            cursor.close()
+            return schema
+        except mysql.connector.Error as e:
+            print(f"Error getting table schema: {e}")
+            return []
+
+    def convert_field(self, data_type):
+        # Regular expression to match 'tinyint(n)' pattern
+        pattern = r'tinyint\((\d+)\)'
+        match = re.search(pattern, data_type)
+
+        if match:
+            size = match.group(1)
+            return 'int', size
+
+        # Regular expression to match 'int(n)' pattern
+        pattern = r'int\((\d+)\)'
+        match = re.search(pattern, data_type)
+
+        if match:
+            size = match.group(1)
+            return 'int', size
+
+        # Regular expression to match 'int(n)' pattern
+        pattern = r'varchar\((\d+)\)'
+        match = re.search(pattern, data_type)
+
+        if match:
+            size = match.group(1)
+            return 'char', size
+        else:
+            return data_type, None
+
+    def extract_enum_values(self, enum_string):
+        pattern = r"'(.*?)'"
+        enum_values = re.findall(pattern, enum_string)
+        return enum_values
+
+    def get_schema_details(self, tables):
+        cursor = self.conn.cursor()
+        d = {}
+        for table_name in tables:
+            schema = self.get_table_schema(table_name)
+            if schema:
+                d[table_name] = {}
+                print(table_name)
+                for field in schema:
+                    d[table_name][field] = {}
+                    print(f"   {field}")
+
+                    converted_type, size = self.convert_field(field[1])
+                    if converted_type.startswith('enum'):
+                        d[table_name][field]['type'] = 'enum'
+                        d[table_name][field]['size'] = None
+                        d[table_name][field]['list'] = self.extract_enum_values(converted_type)
+                    else:
+                        d[table_name][field]['type'] = converted_type
+                        d[table_name][field]['size'] = size
+                    print(f"     {converted_type} {size}")
+
+            else:
+                print(f"No schema found for table '{table_name}'")
+        cursor.close()
+        return d
+
+if __name__ == '__main__':
+    app = QApplication(sys.argv)
+    login_window = LoginWindow()
+    login_window.show()
+    sys.exit(app.exec_())

@@ -1,0 +1,27 @@
+    SELECT
+       project.short_name,
+       project.title,
+       project.description,
+       program.name,
+       project.url_knowledgebase,
+       project.comment,
+       lab.lab_name,
+       contributor.name,
+       grant_info.grant_number,
+       grant_info.funding_agency,
+       grant_info.description_url,
+       grant_info.start_date,
+       grant_info.end_date,
+       contributor.name
+    FROM
+       project
+    INNER JOIN 
+       program ON project.program_id = program.id
+    INNER JOIN 
+       grant_info ON project.id = grant_info.project_id
+    INNER JOIN 
+       project_has_contributor ON project.id = project_has_contributor.project_id
+    INNER JOIN 
+       contributor ON project_has_contributor.contrib_id = contributor.id
+    INNER JOIN 
+       lab ON contributor.lab_lab_id = lab.id;
