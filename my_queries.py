@@ -1,3 +1,20 @@
+# {'Short_name': {'table': 'project', 'field': 'short_name', 'optional': True, 'searchable': False, 'list': None}}, 
+# {'Title': {'table': 'project', 'field': 'title', 'optional': True, 'searchable': False, 'list': None}}, 
+# {'Description': {'table': 'project', 'field': 'description', 'optional': True, 'searchable': False, 'list': None}}, 
+# {'Program': {'table': 'program', 'field': 'name', 'optional': True, 'searchable': True, 'list': None}}, 
+# {'Knowledgebase URL': {'table': 'project', 'field': 'url_knowledgebase', 'optional': True, 'searchable': False, 'list': None}}, 
+# {'Comment': {'table': 'project', 'field': 'comment', 'optional': True, 'searchable': False, 'list': None}}, 
+# {'Project type': {'table': None, 'field': None, 'optional': True, 'searchable': False, 'list': ['grant', 'study']}}, 
+# {'Lab name': {'table': 'lab', 'field': 'lab_name', 'optional': True, 'searchable': True, 'list': None}}, 
+# {'Contributors': {'table': 'contributor', 'field': 'name', 'optional': True, 'searchable': True, 'list': None}}, 
+# {'Is grant?': {'table': None, 'field': None, 'optional': True, 'searchable': False, 'list': ['yes', 'no']}}, 
+# {'Grant number?': {'table': 'grant_info', 'field': 'grant_number', 'optional': True, 'searchable': False, 'list': None}}, 
+# {'Funding agency': {'table': 'grant_info', 'field': 'funding_agency', 'optional': True, 'searchable': False, 'list': None}}, 
+# {'Description URL': {'table': 'grant_info', 'field': 'description_url', 'optional': True, 'searchable': False, 'list': None}}, 
+# {'Start date': {'table': 'grant_info', 'field': 'start_date', 'optional': True, 'searchable': False, 'list': None}}, 
+# {'End date': {'table': 'grant_info', 'field': 'end_date', 'optional': True, 'searchable': False, 'list': None}}, 
+# {'Lead PI Contributor ID': {'table': 'contributor', 'field': 'id', 'optional': True, 'searchable': True, 'list': None}}
+
 pull_project_rows = """
     SELECT
        project.short_name,
@@ -6,6 +23,8 @@ pull_project_rows = """
        program.name,
        project.url_knowledgebase,
        project.comment,
+       project.project_type,
+       project.is_grant,
        lab.lab_name,
        contributor.name,
        grant_info.grant_number,
