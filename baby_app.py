@@ -73,7 +73,7 @@ class LoginWindow(QWidget):
         self.label_password = QLabel('Password:', self)
         self.input_password = QLineEdit(self)
         self.input_password.setEchoMode(QLineEdit.Password)
-        self.input_password.setText('TaritRagi83')
+        self.input_password.setText('')
 
         self.button_login = QPushButton('Login', self)
         self.button_login.clicked.connect(self.login)
@@ -95,8 +95,8 @@ class LoginWindow(QWidget):
             # Connect to the MySQL database
             conn = mysql.connector.connect(
                 host='mysql-devel.igs.umaryland.edu',
-                user=username,
-                password=password,
+                user='owhite',
+                password='',
                 database='nemo_assets_devel'
             )
         
@@ -130,7 +130,7 @@ def manual_login():
         conn = mysql.connector.connect(
             host='mysql-devel.igs.umaryland.edu',
             user='owhite',
-            password='TaritRagi83',
+            password='',
             database='nemo_assets_devel'
         )
         
@@ -143,14 +143,15 @@ def manual_login():
 if __name__ == '__main__':
     app = QApplication(sys.argv)
 
-    if True:
+    if False:
         login_window = LoginWindow()
         login_window.show()
 
     else:
+        from table_list import InstanceEditor, InstancesWindow, hack
         conn = manual_login()
         window = InstancesWindow(conn)
-        # window.show()
+        window.show()
 
         (i, t) = hack()
         w2 = InstanceEditor(conn, "HACK", i, t)

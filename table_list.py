@@ -11,6 +11,14 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QFont, QFontMetrics
 import mysql.connector
 from functools import partial
+from nemoassets import grant, project, lab, contributor
+
+type_to_assets_module = {
+    'Project' : {"module" : project.Project(), "function" : project.Project().get_projects},
+    'Grant' : {"module" : grant.Grant(), "function" : grant.Grant().get_grants},
+    'Lab' : {"module" : lab.Lab(), "function" : lab.Lab().get_labs},
+    'Contributor' : {"module" : contributor.Contributor(), "function" : contributor.Contributor().get_contributors}
+}
 
 # A pretty (generic) form so the user can edit a single instance
 # instance contains information that is described elsewhere
@@ -400,11 +408,26 @@ class InstanceFilter(QMainWindow):
         #   that a few things from self.instance arent actually in the database
         # e.g., 'Is grant?': is just a list: ['yes', 'no']
 
-        project_rows = self.run_query_load_struct(pull_project_rows)
+        
+        
+        # Get a handle to the correct assets module
+        assets_util = type_to_assets_module[self.name]["module"]
+        func = type_to_assets_module[self.name]["function"]
 
-        self.table_widget = QTableWidget(len(project_rows) + 1, len(headers))
+        # Check if this module has any associations defined
+        if getattr(assets_util, "ASSOCIATIONS", None):
+            # if so, get records with all available association types
+            all_associations = list(assets_util.ASSOCIATIONS.keys())
+            assets_objects = func(assoc=all_associations)
+        else:
+            # if not, get records without associations
+            assets_objects = func()
 
-        self.populate_table(self.table_widget, headers, project_rows)
+        # project_rows = self.run_query_load_struct(pull_project_rows)
+
+        self.table_widget = QTableWidget(len(assets_objects) + 1, len(headers))
+
+        self.populate_table(self.table_widget, headers, assets_objects)
 
         # Create input line edits for filtering
         self.input_edits = [QLineEdit() for _ in range(self.table_widget.columnCount())]
@@ -464,39 +487,70 @@ class InstanceFilter(QMainWindow):
                         break
             self.table_widget.setRowHidden(row, not row_visible)
 
-    def populate_table(self, table, headers, rows):
+    def get_assoc_name(self, associations, table, field):
+        for assoc_name in associations:
+            # this is really bad. Clearly, the modules need to return things in a more straightforward kind of way.
+            if (associations[assoc_name]["table"] == table and field in associations[assoc_name]["cols"]) \
+                or ("ref_join" in associations[assoc_name] and associations[assoc_name]["ref_join"]["ref_table"] == table \
+                    and associations[assoc_name]["ref_join"]["readable_field"] == field):
+                return assoc_name
+        return None
+    
+    def populate_table(self, table, headers, assets_obj_list):
         table.setColumnCount(len(headers))
         table.setHorizontalHeaderLabels(headers)
-        table.setRowCount(len(rows))
+        table.setRowCount(len(assets_obj_list))
         
         # note that this leaves the first row blannk
-        for row, nil in enumerate(rows): # rows come from the database 
+        for obj_num, assets_obj in enumerate(assets_obj_list): # rows come from the database 
             for col, item in enumerate(headers):  # columns from self.instance
                 i_field = headers[col]                
                 d = self.get_dict_by_key(self.instance, i_field)
                 if d:
-                    if rows[row].get(d.get('table', ''), {}).get(d.get('field', '')):
-                        content = rows[row][d['table']][d['field']]
-                        if d.get('list'):
-                            # print(F"LIST1: {d['table']} {d['field']} {d['list']} :: {content}")
-                            item_name = QTableWidgetItem(str(content))
-                            table.setItem(row+1, col, item_name)
-                        elif d.get('dict'):
-                            # print(F"LIST2: {d['table']} {d['field']} {d['dict']} :: {content}")
-                            if d['dict'].get(content):
-                                item_name = QTableWidgetItem(str(d['dict'][content]))
-                                table.setItem(row+1, col, item_name)
-                            else:
-                                print(F"populate_table() cant meet business logic")
-                        elif content:
-                            # if here it means just use what is in the database
-                            item_name = QTableWidgetItem(str(content))
-                            table.setItem(row+1, col, item_name)
+                    # if rows[row].get(d.get('table', ''), {}).get(d.get('field', '')):
+                        # content = rows[row][d['table']][d['field']]
+                    
+                    # Check if this field's table is the same as the assets_obj. If not, the field is coming from an association (not the object directly)
+                    if d['table'] != assets_obj.TABLE:
+
+                        # if this field came from another table, then it's from an associated table.
+                        # find the association that corresponds to the table in question
+                        assoc_name = self.get_assoc_name(assets_obj.ASSOCIATIONS, d['table'], d['field'])
+                        
+                        if assoc_name:
+                            content = getattr(assets_obj, assoc_name)
+                            if isinstance(content, dict):
+                                content = content[d['field']]
+                            elif isinstance(content, list):
+                                if isinstance(content[0], dict):
+                                    content = [assoc[d['field']] for assoc in content]
+                                if len(content) == 1:
+                                    content = content[0]
                         else:
-                            print(F"UNEXPECTED in populate_table()")
-                    # if here the database field was empty, which is okay
+                            print(f"Couldn't find an association from {assets_obj.TABLE} to table: {d['table']}")
+
                     else:
-                        pass
+                        content = getattr(assets_obj, d['field'])
+                    if d.get('list'):
+                        # print(F"LIST1: {d['table']} {d['field']} {d['list']} :: {content}")
+                        item_name = QTableWidgetItem(str(content))
+                        table.setItem(obj_num+1, col, item_name)
+                    elif d.get('dict'):
+                        # print(F"LIST2: {d['table']} {d['field']} {d['dict']} :: {content}")
+                        if d['dict'].get(content):
+                            item_name = QTableWidgetItem(str(d['dict'][content]))
+                            table.setItem(obj_num+1, col, item_name)
+                        else:
+                            print(F"populate_table() cant meet business logic")
+                    elif content:
+                        # if here it means just use what is in the database
+                        item_name = QTableWidgetItem(str(content))
+                        table.setItem(obj_num+1, col, item_name)
+                    else:
+                        print(F"UNEXPECTED in populate_table()")
+                    # if here the database field was empty, which is okay
+                    # else:
+                    #     pass
                 else:
                     print(f"unclear why there is no self.instance for {i_field}")
 
@@ -550,7 +604,7 @@ class InstancesWindow(QMainWindow):
         # each form contains a list of fields, and the fields have attributes, e.g., a corresponding sql table names and table fields
         # see: https://docs.google.com/spreadsheets/d/1B1w7Rw_jkkneBYINoVJj-XBC1FlRZXuI3Y400rPBHKk/edit#gid=0
         self.instance_types = {
-            'Project':
+            'Grant':
             [
                 {'Short_name': {'table': 'project', 'field': 'short_name', 'optional': True, 'searchable': False, 'list': None}}, 
                 {'Title': {'table': 'project', 'field': 'title', 'optional': True, 'searchable': False, 'list': None}}, 
@@ -569,6 +623,19 @@ class InstancesWindow(QMainWindow):
                 {'End date': {'table': 'grant_info', 'field': 'end_date', 'optional': True, 'searchable': False, 'list': None}}, 
                 {'Lead PI Contributor ID': {'table': 'contributor', 'field': 'name', 'optional': True, 'searchable': True, 'list': None}}
             ],
+            'Project':
+            [
+                {'Short_name': {'table': 'project', 'field': 'short_name', 'optional': True, 'searchable': False, 'list': None}}, 
+                {'Title': {'table': 'project', 'field': 'title', 'optional': True, 'searchable': False, 'list': None}}, 
+                {'Description': {'table': 'project', 'field': 'description', 'optional': True, 'searchable': False, 'list': None}}, 
+                {'Program': {'table': 'program', 'field': 'name', 'optional': True, 'searchable': False, 'list': None}}, 
+                {'Knowledgebase URL': {'table': 'project', 'field': 'url_knowledgebase', 'optional': True, 'searchable': False, 'list': None}}, 
+                {'Comment': {'table': 'project', 'field': 'comment', 'optional': True, 'searchable': False, 'list': None}}, 
+                {'Project type': {'table': 'project', 'field': 'project_type', 'optional': True, 'searchable': False, 'list': ['grant', 'study']}}, 
+                {'Lab name': {'table': 'lab', 'field': 'lab_name', 'optional': True, 'searchable': True, 'list': None}}, 
+                {'Contributors': {'table': 'contributor', 'field': 'name', 'optional': True, 'searchable': True, 'list': None}}, 
+                {'Is grant?': {'table': 'project', 'field': 'is_grant', 'optional': True, 'searchable': False, 'list': None, 'dict': {1: 'yes', 0: 'no'}}}, 
+            ],
             'Lab':
             [
                 {'Lab name': {'table': 'lab', 'field': 'lab_name', 'optional': False, 'searchable': False, 'list': None}}, 
@@ -578,7 +645,7 @@ class InstancesWindow(QMainWindow):
             [
                 {'Name': {'table': 'contributor', 'field': 'name', 'optional': False, 'searchable': False, 'list': None}}, 
                 {'Email': {'table': 'contributor', 'field': 'email', 'optional': True, 'searchable': False, 'list': None}}, 
-                {'ORCID ID': {'table': 'contributor', 'field': 'orchid_id', 'optional': True, 'searchable': False, 'list': None}}, 
+                {'ORCID ID': {'table': 'contributor', 'field': 'orcid_id', 'optional': True, 'searchable': False, 'list': None}}, 
                 {'Organization': {'table': 'contributor', 'field': 'organization', 'optional': True, 'searchable': False, 'list': None}}, 
                 {'Aspera Username': {'table': 'contributor', 'field': 'aspera_uname', 'optional': True, 'searchable': False, 'list': None}}, 
                 {'Lab ID': {'table': 'contributor', 'field': 'lab_lab_id', 'optional': True, 'searchable': False, 'list': None}}, 
@@ -633,7 +700,7 @@ class LoginWindow(QWidget):
         self.label_password = QLabel('Password:', self)
         self.input_password = QLineEdit(self)
         self.input_password.setEchoMode(QLineEdit.Password)
-        self.input_password.setText('TaritRagi83')
+        self.input_password.setText('')
 
         self.button_login = QPushButton('Login', self)
         self.button_login.clicked.connect(self.login)
@@ -690,7 +757,7 @@ def manual_login():
         conn = mysql.connector.connect(
             host='mysql-devel.igs.umaryland.edu',
             user='owhite',
-            password='TaritRagi83',
+            password='',
             database='nemo_assets_devel'
         )
         
