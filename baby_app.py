@@ -130,7 +130,7 @@ def manual_login():
         conn = mysql.connector.connect(
             host='mysql-devel.igs.umaryland.edu',
             user='owhite',
-            password='',
+            password='TaritRagi83',
             database='nemo_assets_devel'
         )
         

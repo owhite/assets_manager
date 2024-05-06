@@ -408,20 +408,26 @@ class InstanceFilter(QMainWindow):
         #   that a few things from self.instance arent actually in the database
         # e.g., 'Is grant?': is just a list: ['yes', 'no']
 
-        
-        
+        # print("NAME: ", self.name) 
         # Get a handle to the correct assets module
         assets_util = type_to_assets_module[self.name]["module"]
         func = type_to_assets_module[self.name]["function"]
+
+        # print("UTIL:", assets_util, "\nFUNC", func)
 
         # Check if this module has any associations defined
         if getattr(assets_util, "ASSOCIATIONS", None):
             # if so, get records with all available association types
             all_associations = list(assets_util.ASSOCIATIONS.keys())
             assets_objects = func(assoc=all_associations)
+            print(F"ASSOCIATIONS FOUND:\n {assets_objects}")
         else:
+            print("NO ASSOCIATIONS")
             # if not, get records without associations
             assets_objects = func()
+
+        # print("ASSOCIATIONS:\n", all_associations)
+        # print("OBJECTS:\n", assets_objects)
 
         # project_rows = self.run_query_load_struct(pull_project_rows)
 
@@ -501,6 +507,9 @@ class InstanceFilter(QMainWindow):
         table.setHorizontalHeaderLabels(headers)
         table.setRowCount(len(assets_obj_list))
         
+        print ("POPULATE TABLE...")
+        # print(assets_obj_list)
+
         # note that this leaves the first row blannk
         for obj_num, assets_obj in enumerate(assets_obj_list): # rows come from the database 
             for col, item in enumerate(headers):  # columns from self.instance
@@ -510,7 +519,8 @@ class InstanceFilter(QMainWindow):
                     # if rows[row].get(d.get('table', ''), {}).get(d.get('field', '')):
                         # content = rows[row][d['table']][d['field']]
                     
-                    # Check if this field's table is the same as the assets_obj. If not, the field is coming from an association (not the object directly)
+                    # Check if this field's table is the same as the assets_obj.
+                    # If not, the field is coming from an association (not the object directly)
                     if d['table'] != assets_obj.TABLE:
 
                         # if this field came from another table, then it's from an associated table.
@@ -547,10 +557,9 @@ class InstanceFilter(QMainWindow):
                         item_name = QTableWidgetItem(str(content))
                         table.setItem(obj_num+1, col, item_name)
                     else:
-                        print(F"UNEXPECTED in populate_table()")
-                    # if here the database field was empty, which is okay
-                    # else:
-                    #     pass
+                        # if here the database field was empty, which is okay
+                        # print(F"UNEXPECTED in populate_table()")
+                        pass
                 else:
                     print(f"unclear why there is no self.instance for {i_field}")
 
@@ -684,6 +693,8 @@ class InstancesWindow(QMainWindow):
 
     # if we're here we want to launch the instance filter window
     def edit_button_clicked(self, name):
+        print(name)
+        print(self.instance_types[name])
         window = InstanceFilter(self.conn, name, self.instance_types[name], self)
         window.show()
 
@@ -700,7 +711,7 @@ class LoginWindow(QWidget):
         self.label_password = QLabel('Password:', self)
         self.input_password = QLineEdit(self)
         self.input_password.setEchoMode(QLineEdit.Password)
-        self.input_password.setText('')
+        self.input_password.setText('TaritRagi83')
 
         self.button_login = QPushButton('Login', self)
         self.button_login.clicked.connect(self.login)
@@ -717,6 +728,8 @@ class LoginWindow(QWidget):
     def login(self):
         username = self.input_username.text()
         password = self.input_password.text()
+
+        print("LOGIN")
 
         try:
             # Connect to the MySQL database
@@ -757,7 +770,7 @@ def manual_login():
         conn = mysql.connector.connect(
             host='mysql-devel.igs.umaryland.edu',
             user='owhite',
-            password='',
+            password='TaritRagi83',
             database='nemo_assets_devel'
         )
         
@@ -766,17 +779,17 @@ def manual_login():
 
     return(conn)
 
-def hack():
+def hack(conn, window):
+    name = "Project"
+    instance = [{'Short_name': {'table': 'project', 'field': 'short_name', 'optional': True, 'searchable': False, 'list': None}}, {'Title': {'table': 'project', 'field': 'title', 'optional': True, 'searchable': False, 'list': None}}, {'Description': {'table': 'project', 'field': 'description', 'optional': True, 'searchable': False, 'list': None}}, {'Program': {'table': 'program', 'field': 'name', 'optional': True, 'searchable': False, 'list': None}}, {'Knowledgebase URL': {'table': 'project', 'field': 'url_knowledgebase', 'optional': True, 'searchable': False, 'list': None}}, {'Comment': {'table': 'project', 'field': 'comment', 'optional': True, 'searchable': False, 'list': None}}, {'Project type': {'table': 'project', 'field': 'project_type', 'optional': True, 'searchable': False, 'list': ['grant', 'study']}}, {'Lab name': {'table': 'lab', 'field': 'lab_name', 'optional': True, 'searchable': True, 'list': None}}, {'Contributors': {'table': 'contributor', 'field': 'name', 'optional': True, 'searchable': True, 'list': None}}, {'Is grant?': {'table': 'project', 'field': 'is_grant', 'optional': True, 'searchable': False, 'list': None, 'dict': {1: 'yes', 0: 'no'}}}]
 
-    instance = [{'Short_name': {'table': 'project', 'field': 'short_name', 'optional': True, 'searchable': False, 'list': None}}, {'Title': {'table': 'project', 'field': 'title', 'optional': True, 'searchable': False, 'list': None}}, {'Description': {'table': 'project', 'field': 'description', 'optional': True, 'searchable': False, 'list': None}}, {'Program': {'table': 'program', 'field': 'name', 'optional': True, 'searchable': False, 'list': None}}, {'Knowledgebase URL': {'table': 'project', 'field': 'url_knowledgebase', 'optional': True, 'searchable': False, 'list': None}}, {'Comment': {'table': 'project', 'field': 'comment', 'optional': True, 'searchable': False, 'list': None}}, {'Project type': {'table': 'project', 'field': 'project_type', 'optional': True, 'searchable': False, 'list': ['grant', 'study']}}, {'Lab name': {'table': 'lab', 'field': 'lab_name', 'optional': True, 'searchable': True, 'list': None}}, {'Contributors': {'table': 'contributor', 'field': 'name', 'optional': True, 'searchable': True, 'list': None}}, {'Is grant?': {'table': 'project', 'field': 'is_grant', 'optional': True, 'searchable': False, 'list': ['yes', 'no']}}, {'Grant number?': {'table': 'grant_info', 'field': 'grant_number', 'optional': True, 'searchable': False, 'list': None}}, {'Funding agency': {'table': 'grant_info', 'field': 'funding_agency', 'optional': True, 'searchable': False, 'list': None}}, {'Description URL': {'table': 'grant_info', 'field': 'description_url', 'optional': True, 'searchable': False, 'list': None}}, {'Start date': {'table': 'grant_info', 'field': 'start_date', 'optional': True, 'searchable': False, 'list': None}}, {'End date': {'table': 'grant_info', 'field': 'end_date', 'optional': True, 'searchable': False, 'list': None}}, {'Lead PI Contributor ID': {'table': 'contributor', 'field': 'name', 'optional': True, 'searchable': True, 'list': None}}]
-
-    tables = ['u01_devhu', 'A Cellular resolution census of the developing human brain', '', 'biccn', '', '', 'grant', 'Kriegstein', 'Aparna Bhaduri', 'yes', '1U01MH114825', 'NIMH', 'https://reporter.nih.gov/search/-VKcLJrLhUi6zhWxka3yAA/project-details/9415877', '2017-09-15', '2022-06-30', 'Aparna Bhaduri']
-    return(instance, tables)
+    window = InstanceFilter(conn, name, instance, window)
+    window.show()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
 
-    if True:
+    if False:
         login_window = LoginWindow()
         login_window.show()
 
@@ -784,9 +797,7 @@ if __name__ == '__main__':
         conn = manual_login()
         window = InstancesWindow(conn)
         # window.show()
+        hack(conn, window)
 
-        (i, t) = hack()
-        w2 = InstanceEditor(conn, "HACK", i, t)
-        w2.show()
 
     sys.exit(app.exec_())
