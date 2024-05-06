@@ -20,6 +20,249 @@ type_to_assets_module = {
     'Contributor' : {"module" : contributor.Contributor(), "function" : contributor.Contributor().get_contributors}
 }
 
+# An instance is something that has several rows, each row containing fields from a set of tables. 
+#   It's not the same thing as a database table, it represents fields from multiple database tables.
+#   This different instances are in the self.instance_types
+#   This class handles making a pretty interface to filter the rows of a single instance
+class InstanceFilter(QMainWindow):
+    def __init__(self, conn, name, instance, parent=None):
+        super(InstanceFilter, self).__init__(parent)
+        self.parent = parent
+        self.conn = conn
+        self.name = name
+        self.instance = instance
+        self.setWindowTitle('Instance List')
+        self.setGeometry(self.parent.x() + self.parent.width(), self.y(), 1200, 300)
+        # print(F"INSTANCE FILTER {self.parent.x() + self.parent.width()} {self.y()}")
+
+        # instances are associated with a bunch of tables
+        # get a unique list of db tables from this instance:
+        self.tables = []
+        for d in self.instance:
+            for row in list(d.keys()):
+                if 'table' in d[row]:
+                    self.tables.append(d[row]['table'])
+
+        self.tables = list(set(self.tables) - {None})
+
+        self.initUI()
+
+    def initUI(self):
+        self.setContextMenuPolicy(QtCore.Qt.CustomContextMenu) # helps with launching stuff with right click
+        self.customContextMenuRequested.connect(self.rightclick_context_menu) # ditto
+
+        self.central_widget = QWidget()  # Create a central widget
+        self.setWindowTitle(f"{self.name} Form")
+        self.setCentralWidget(self.central_widget)  
+
+        layout = QVBoxLayout(self.central_widget)
+        layout.setContentsMargins(10, 10, 0, 0)
+        layout.setSpacing(0)
+
+        label = QLabel(self.name)
+        layout.addWidget(label)
+
+        # self.instance is based on the self.instance_types InstancesWindow class 
+        #  when this gets laid out, the headers will be based on that
+
+        headers = []
+        for d in self.instance:
+            headers.append(list(d.keys())[0])
+
+        # each is coming from the database, and now we have to fold in the fields
+        #   that came from the database with self.instance. This has the complication
+        #   that a few things from self.instance arent actually in the database
+        # e.g., 'Is grant?': is just a list: ['yes', 'no']
+
+        print("NAME: ", self.name) 
+        # Get a handle to the correct assets module
+        assets_util = type_to_assets_module[self.name]["module"]
+        func = type_to_assets_module[self.name]["function"]
+        print("UTIL:", assets_util, "\nFUNC", func)
+
+        # Check if this module has any associations defined
+        if getattr(assets_util, "ASSOCIATIONS", None):
+            # if so, get records with all available association types
+            all_associations = list(assets_util.ASSOCIATIONS.keys())
+            assets_objects = func(assoc=all_associations)
+            # ['program', 'grant', 'labs', 'attributes', 'contributors']
+            # print(F"ASSOCIATION TYPES: {all_associations}")
+            # print(F"ASSOCIATIONS FOUND:\n {assets_objects}")
+
+        else:
+            print("NO ASSOCIATIONS")
+            # if not, get records without associations
+            assets_objects = func()
+
+        self.table_widget = QTableWidget(len(assets_objects) + 1, len(headers))
+
+        self.populate_table(self.table_widget, headers, assets_objects)
+
+        # Create input line edits for filtering
+        self.input_edits = [QLineEdit() for _ in range(self.table_widget.columnCount())]
+        for col, edit in enumerate(self.input_edits):
+            edit.textChanged.connect(lambda text, col=col: self.filter_table())
+            self.table_widget.setCellWidget(0, col, edit)
+
+        layout.addWidget(self.table_widget)
+
+    def rightclick_context_menu(self, pos):
+        menu = QMenu(self)
+
+        # Get the selected cell from the table widget
+        selected_items = self.table_widget.selectedItems()
+        if selected_items:
+            selected_item = selected_items[0]
+            row = selected_item.row()
+            col = selected_item.column()
+
+            action1 = menu.addAction("Edit")
+            # action2 = menu.addAction("Action 2") # leave these here in case we want other actions
+
+            action1.triggered.connect(lambda: self.handle_action(row, col, "Edit"))
+            # action2.triggered.connect(lambda: self.handle_action(row, col, "Action 2"))
+
+        menu.exec_(self.mapToGlobal(pos))
+
+    # xxx
+    def handle_action(self, row, col, action_text):
+        print(f"col {col}: perform {action_text} on row {row}")
+        self.table_widget.clearSelection()
+        # light up the whole row w/ selected = True
+        #  and collect the contents in each cell
+        items = []
+        for i in range(self.table_widget.columnCount()):
+            item = self.table_widget.item(row, i)
+            if item is None:
+                item = QTableWidgetItem()  
+                self.table_widget.setItem(row, i, item)
+            item.setSelected(True)
+            items.append(item.text())
+
+        print("FIX WHEN ITEMS RECEIVES A LIST")
+        # get ready
+        edit_form = InstanceEditor(self.conn, self.name, self.instance, items, self)
+        edit_form.show()
+        
+    def filter_table(self):
+        filter_texts = [edit.text().lower() for edit in self.input_edits]
+        for row in range(1, self.table_widget.rowCount()):
+            row_visible = True
+            for col in range(self.table_widget.columnCount()):
+                item = self.table_widget.item(row, col)
+                if item is not None and filter_texts[col]:
+                    if filter_texts[col] not in item.text().lower():
+                        row_visible = False
+                        break
+            self.table_widget.setRowHidden(row, not row_visible)
+
+    def get_assoc_name(self, associations, table, field):
+        for assoc_name in associations:
+            # this is really bad. Clearly, the modules need to return things in a more straightforward kind of way.
+            if (associations[assoc_name]["table"] == table and field in associations[assoc_name]["cols"]) \
+                or ("ref_join" in associations[assoc_name] and associations[assoc_name]["ref_join"]["ref_table"] == table \
+                    and associations[assoc_name]["ref_join"]["readable_field"] == field):
+                return assoc_name
+        return None
+    
+    def populate_table(self, table, headers, assets_obj_list):
+        table.setColumnCount(len(headers))
+        table.setHorizontalHeaderLabels(headers)
+        table.setRowCount(len(assets_obj_list))
+        
+        print ("POPULATE TABLE...")
+        # print(assets_obj_list)
+
+        # note that this leaves the first row blannk
+        for obj_num, assets_obj in enumerate(assets_obj_list): # rows come from the database 
+            for col, item in enumerate(headers):  # columns from self.instance
+                i_field = headers[col]                
+                d = self.get_dict_by_key(self.instance, i_field)
+                if d:
+                    # if rows[row].get(d.get('table', ''), {}).get(d.get('field', '')):
+                        # content = rows[row][d['table']][d['field']]
+                    
+                    # Check if this field's table is the same as the assets_obj.
+                    # If not, the field is coming from an association (not the object directly)
+                    if d['table'] != assets_obj.TABLE:
+
+                        # if this field came from another table, then it's from an associated table.
+                        # find the association that corresponds to the table in question
+                        assoc_name = self.get_assoc_name(assets_obj.ASSOCIATIONS, d['table'], d['field'])
+                        
+                        if assoc_name:
+                            content = getattr(assets_obj, assoc_name)
+                            if isinstance(content, dict):
+                                content = content[d['field']]
+                            elif isinstance(content, list):
+                                if isinstance(content[0], dict):
+                                    content = [assoc[d['field']] for assoc in content]
+                                if len(content) == 1:
+                                    content = content[0]
+                        else:
+                            print(f"Couldn't find an association from {assets_obj.TABLE} to table: {d['table']}")
+
+                    else:
+                        content = getattr(assets_obj, d['field'])
+                    if d.get('list'):
+                        # print(F"LIST1: {d['table']} {d['field']} {d['list']} :: {content}")
+                        item_name = QTableWidgetItem(str(content))
+                        table.setItem(obj_num+1, col, item_name)
+                    elif d.get('dict'):
+                        # print(F"LIST2: {d['table']} {d['field']} {d['dict']} :: {content}")
+                        if d['dict'].get(content):
+                            item_name = QTableWidgetItem(str(d['dict'][content]))
+                            table.setItem(obj_num+1, col, item_name)
+                        else:
+                            print(F"populate_table() cant meet business logic")
+                    elif content:
+                        # if here it means just use what is in the database
+                        item_name = QTableWidgetItem(str(content))
+                        table.setItem(obj_num+1, col, item_name)
+                    else:
+                        # if here the database field was empty, which is okay
+                        # print(F"UNEXPECTED in populate_table()")
+                        pass
+                else:
+                    print(f"unclear why there is no self.instance for {i_field}")
+
+
+
+    def get_dict_by_key(self, dictionary_list, key):
+        for dictionary in dictionary_list:
+            if key in dictionary:
+                return dictionary[key]
+        return None 
+
+    def run_query_load_struct(self, query):
+        # different than just running a query, it also gets the column
+        #   names from the query itself, then loads into the struct
+        # note: this is highly dependent on each table and field being
+        #   parsable from the query string
+        column_names = re.findall(r"\b\w+\.\w+\b", pull_project_rows)
+
+        struct = {}
+
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute(query)
+            rows = cursor.fetchall()
+            cursor.close()
+            for row, content in enumerate(rows):
+                for col, item in enumerate(content):
+                    x = column_names[col]
+                    (table, field) = x.split('.')
+                    if row not in struct:
+                        struct[row] = {}
+                    if table not in struct[row]:
+                        struct[row][table] = {}
+                    struct[row][table][field] = item
+            return (struct)
+        except mysql.connector.Error as e:
+            print(f"Error getting table schema: {e}")
+            return ()
+
+
 # A pretty (generic) form so the user can edit a single instance
 # instance contains information that is described elsewhere
 # items is basically the content associated with the instance that we will edit
@@ -353,251 +596,6 @@ class SearchableLabel(QLabel):
 
     def mousePressEvent(self, event):
         self.clicked.emit()
-
-# An instance is something that has several rows, each row containing fields from a set of tables. 
-#   It's not the same thing as a database table, it represents fields from multiple database tables.
-#   This different instances are in the self.instance_types
-#   This class handles making a pretty interface to filter the rows of a single instance
-class InstanceFilter(QMainWindow):
-    def __init__(self, conn, name, instance, parent=None):
-        super(InstanceFilter, self).__init__(parent)
-        self.parent = parent
-        self.conn = conn
-        self.name = name
-        self.instance = instance
-        self.setWindowTitle('Instance List')
-        self.setGeometry(self.parent.x() + self.parent.width(), self.y(), 1200, 300)
-        # print(F"INSTANCE FILTER {self.parent.x() + self.parent.width()} {self.y()}")
-
-        # instances are associated with a bunch of tables
-        # get a unique list of db tables from this instance:
-        self.tables = []
-        for d in self.instance:
-            for row in list(d.keys()):
-                if 'table' in d[row]:
-                    self.tables.append(d[row]['table'])
-
-        self.tables = list(set(self.tables) - {None})
-
-        self.initUI()
-
-    def initUI(self):
-        self.setContextMenuPolicy(QtCore.Qt.CustomContextMenu) # helps with launching stuff with right click
-        self.customContextMenuRequested.connect(self.rightclick_context_menu) # ditto
-
-        self.central_widget = QWidget()  # Create a central widget
-        self.setWindowTitle(f"{self.name} Form")
-        self.setCentralWidget(self.central_widget)  
-
-        layout = QVBoxLayout(self.central_widget)
-        layout.setContentsMargins(10, 10, 0, 0)
-        layout.setSpacing(0)
-
-        label = QLabel(self.name)
-        layout.addWidget(label)
-
-        # self.instance is based on the self.instance_types InstancesWindow class 
-        #  when this gets laid out, the headers will be based on that
-
-        headers = []
-        for d in self.instance:
-            headers.append(list(d.keys())[0])
-
-        # each is coming from the database, and now we have to fold in the fields
-        #   that came from the database with self.instance. This has the complication
-        #   that a few things from self.instance arent actually in the database
-        # e.g., 'Is grant?': is just a list: ['yes', 'no']
-
-        # print("NAME: ", self.name) 
-        # Get a handle to the correct assets module
-        assets_util = type_to_assets_module[self.name]["module"]
-        func = type_to_assets_module[self.name]["function"]
-
-        # print("UTIL:", assets_util, "\nFUNC", func)
-
-        # Check if this module has any associations defined
-        if getattr(assets_util, "ASSOCIATIONS", None):
-            # if so, get records with all available association types
-            all_associations = list(assets_util.ASSOCIATIONS.keys())
-            assets_objects = func(assoc=all_associations)
-            print(F"ASSOCIATIONS FOUND:\n {assets_objects}")
-        else:
-            print("NO ASSOCIATIONS")
-            # if not, get records without associations
-            assets_objects = func()
-
-        # print("ASSOCIATIONS:\n", all_associations)
-        # print("OBJECTS:\n", assets_objects)
-
-        # project_rows = self.run_query_load_struct(pull_project_rows)
-
-        self.table_widget = QTableWidget(len(assets_objects) + 1, len(headers))
-
-        self.populate_table(self.table_widget, headers, assets_objects)
-
-        # Create input line edits for filtering
-        self.input_edits = [QLineEdit() for _ in range(self.table_widget.columnCount())]
-        for col, edit in enumerate(self.input_edits):
-            edit.textChanged.connect(lambda text, col=col: self.filter_table())
-            self.table_widget.setCellWidget(0, col, edit)
-
-        layout.addWidget(self.table_widget)
-
-    def rightclick_context_menu(self, pos):
-        menu = QMenu(self)
-
-        # Get the selected cell from the table widget
-        selected_items = self.table_widget.selectedItems()
-        if selected_items:
-            selected_item = selected_items[0]
-            row = selected_item.row()
-            col = selected_item.column()
-
-            action1 = menu.addAction("Edit")
-            # action2 = menu.addAction("Action 2") # leave these here in case we want other actions
-
-            action1.triggered.connect(lambda: self.handle_action(row, col, "Edit"))
-            # action2.triggered.connect(lambda: self.handle_action(row, col, "Action 2"))
-
-        menu.exec_(self.mapToGlobal(pos))
-
-    # xxx
-    def handle_action(self, row, col, action_text):
-        print(f"col {col}: perform {action_text} on row {row}")
-        self.table_widget.clearSelection()
-        # light up the whole row w/ selected = True
-        #  and collect the contents in each cell
-        items = []
-        for i in range(self.table_widget.columnCount()):
-            item = self.table_widget.item(row, i)
-            if item is None:
-                item = QTableWidgetItem()  
-                self.table_widget.setItem(row, i, item)
-            item.setSelected(True)
-            items.append(item.text())
-
-        print("YOU HAVE TO FIX WHEN ITEMS RECEIVES A LIST")
-        # get ready
-        edit_form = InstanceEditor(self.conn, self.name, self.instance, items, self)
-        edit_form.show()
-        
-    def filter_table(self):
-        filter_texts = [edit.text().lower() for edit in self.input_edits]
-        for row in range(1, self.table_widget.rowCount()):
-            row_visible = True
-            for col in range(self.table_widget.columnCount()):
-                item = self.table_widget.item(row, col)
-                if item is not None and filter_texts[col]:
-                    if filter_texts[col] not in item.text().lower():
-                        row_visible = False
-                        break
-            self.table_widget.setRowHidden(row, not row_visible)
-
-    def get_assoc_name(self, associations, table, field):
-        for assoc_name in associations:
-            # this is really bad. Clearly, the modules need to return things in a more straightforward kind of way.
-            if (associations[assoc_name]["table"] == table and field in associations[assoc_name]["cols"]) \
-                or ("ref_join" in associations[assoc_name] and associations[assoc_name]["ref_join"]["ref_table"] == table \
-                    and associations[assoc_name]["ref_join"]["readable_field"] == field):
-                return assoc_name
-        return None
-    
-    def populate_table(self, table, headers, assets_obj_list):
-        table.setColumnCount(len(headers))
-        table.setHorizontalHeaderLabels(headers)
-        table.setRowCount(len(assets_obj_list))
-        
-        print ("POPULATE TABLE...")
-        # print(assets_obj_list)
-
-        # note that this leaves the first row blannk
-        for obj_num, assets_obj in enumerate(assets_obj_list): # rows come from the database 
-            for col, item in enumerate(headers):  # columns from self.instance
-                i_field = headers[col]                
-                d = self.get_dict_by_key(self.instance, i_field)
-                if d:
-                    # if rows[row].get(d.get('table', ''), {}).get(d.get('field', '')):
-                        # content = rows[row][d['table']][d['field']]
-                    
-                    # Check if this field's table is the same as the assets_obj.
-                    # If not, the field is coming from an association (not the object directly)
-                    if d['table'] != assets_obj.TABLE:
-
-                        # if this field came from another table, then it's from an associated table.
-                        # find the association that corresponds to the table in question
-                        assoc_name = self.get_assoc_name(assets_obj.ASSOCIATIONS, d['table'], d['field'])
-                        
-                        if assoc_name:
-                            content = getattr(assets_obj, assoc_name)
-                            if isinstance(content, dict):
-                                content = content[d['field']]
-                            elif isinstance(content, list):
-                                if isinstance(content[0], dict):
-                                    content = [assoc[d['field']] for assoc in content]
-                                if len(content) == 1:
-                                    content = content[0]
-                        else:
-                            print(f"Couldn't find an association from {assets_obj.TABLE} to table: {d['table']}")
-
-                    else:
-                        content = getattr(assets_obj, d['field'])
-                    if d.get('list'):
-                        # print(F"LIST1: {d['table']} {d['field']} {d['list']} :: {content}")
-                        item_name = QTableWidgetItem(str(content))
-                        table.setItem(obj_num+1, col, item_name)
-                    elif d.get('dict'):
-                        # print(F"LIST2: {d['table']} {d['field']} {d['dict']} :: {content}")
-                        if d['dict'].get(content):
-                            item_name = QTableWidgetItem(str(d['dict'][content]))
-                            table.setItem(obj_num+1, col, item_name)
-                        else:
-                            print(F"populate_table() cant meet business logic")
-                    elif content:
-                        # if here it means just use what is in the database
-                        item_name = QTableWidgetItem(str(content))
-                        table.setItem(obj_num+1, col, item_name)
-                    else:
-                        # if here the database field was empty, which is okay
-                        # print(F"UNEXPECTED in populate_table()")
-                        pass
-                else:
-                    print(f"unclear why there is no self.instance for {i_field}")
-
-
-
-    def get_dict_by_key(self, dictionary_list, key):
-        for dictionary in dictionary_list:
-            if key in dictionary:
-                return dictionary[key]
-        return None 
-
-    def run_query_load_struct(self, query):
-        # different than just running a query, it also gets the column
-        #   names from the query itself, then loads into the struct
-        # note: this is highly dependent on each table and field being
-        #   parsable from the query string
-        column_names = re.findall(r"\b\w+\.\w+\b", pull_project_rows)
-
-        struct = {}
-
-        try:
-            cursor = self.conn.cursor()
-            cursor.execute(query)
-            rows = cursor.fetchall()
-            cursor.close()
-            for row, content in enumerate(rows):
-                for col, item in enumerate(content):
-                    x = column_names[col]
-                    (table, field) = x.split('.')
-                    if row not in struct:
-                        struct[row] = {}
-                    if table not in struct[row]:
-                        struct[row][table] = {}
-                    struct[row][table][field] = item
-            return (struct)
-        except mysql.connector.Error as e:
-            print(f"Error getting table schema: {e}")
-            return ()
 
 # The InstancesWindow creates a list 
 #   This class sets up the content of each instance, and shows the user all available instances
