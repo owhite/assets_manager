@@ -11,7 +11,11 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QFont, QFontMetrics
 import mysql.connector
 from functools import partial
-from nemoassets import grant, project, lab, contributor
+try: 
+    from nemoassets import grant, project, lab, contributor
+except ModuleNotFoundError:
+    print ("cant find nemoassets")
+    print ("try: export PYTHONPATH=\"${PYTHONPATH}:/path/to/nemoassets\"")
 
 type_to_assets_module = {
     'Project' : {"module" : project.Project(), "function" : project.Project().get_projects},
@@ -74,11 +78,9 @@ class InstanceFilter(QMainWindow):
         #   that a few things from self.instance arent actually in the database
         # e.g., 'Is grant?': is just a list: ['yes', 'no']
 
-        print("NAME: ", self.name) 
         # Get a handle to the correct assets module
         assets_util = type_to_assets_module[self.name]["module"]
         func = type_to_assets_module[self.name]["function"]
-        print("UTIL:", assets_util, "\nFUNC", func)
 
         # Check if this module has any associations defined
         if getattr(assets_util, "ASSOCIATIONS", None):
@@ -87,7 +89,7 @@ class InstanceFilter(QMainWindow):
             assets_objects = func(assoc=all_associations)
             # ['program', 'grant', 'labs', 'attributes', 'contributors']
             # print(F"ASSOCIATION TYPES: {all_associations}")
-            # print(F"ASSOCIATIONS FOUND:\n {assets_objects}")
+            # print(F"ASSOCIATIONS FOUND:\n")
 
         else:
             print("NO ASSOCIATIONS")
@@ -124,7 +126,6 @@ class InstanceFilter(QMainWindow):
 
         menu.exec_(self.mapToGlobal(pos))
 
-    # xxx
     def handle_action(self, row, col, action_text):
         print(f"col {col}: perform {action_text} on row {row}")
         self.table_widget.clearSelection()
@@ -334,10 +335,11 @@ class InstanceEditor(QMainWindow):
             inst_spec = self.instance[n][name]
 
             label = SearchableLabel(name, self.font, left_label_len)
-            if inst_spec['searchable']:
+            if inst_spec['searchable'] is not False:
                 label.setSearchable()
                 w = int(self.deets[inst_spec['table']][inst_spec['field']]['size'])
-                label.clicked.connect(partial(self.label_clicked, name, inst_spec['table'], inst_spec['field'], w * text_width))
+                #xxx
+                label.clicked.connect(partial(self.label_clicked, name, inst_spec['searchable'], inst_spec['field'], w * text_width))
             box.addWidget(label)
 
             w = self.create_entry_widget(self.deets, text_width, text_height, item, inst_spec)
@@ -425,6 +427,12 @@ class InstanceEditor(QMainWindow):
 
     def label_clicked(self, name, table, field, table_width):
         print (F"Display {table} {field} for user")
+        assets_util = type_to_assets_module[table]["module"]
+        func = type_to_assets_module[table]["function"]
+        assets_objects = func()
+        print (F"LEN {len(assets_objects)}")
+            
+
         g = self.geometry()
 
         if hasattr(self, 'table_widget'):
@@ -442,12 +450,13 @@ class InstanceEditor(QMainWindow):
             # table_widget does not exist, create one
             self.table_widget = QTableWidget()
             self.table_widget.setColumnCount(1)
-            self.table_widget.setRowCount(100)
+            self.table_widget.setRowCount(len(assets_objects))
 
-            col = 0
-            for row in range(100):
-                item = QTableWidgetItem(f"Row {row}, Col {col}")
-                self.table_widget.setItem(row, col, item)
+            row = 0
+            for a in assets_objects:
+                item = QTableWidgetItem((F"{a.id} {a.lab_name}"))
+                self.table_widget.setItem(row, 0, item)
+                row = row + 1
 
             # controls table width, did not get this to work very well
             self.table_widget.setHorizontalHeaderLabels([name])
@@ -620,15 +629,15 @@ class InstancesWindow(QMainWindow):
                 {'Knowledgebase URL': {'table': 'project', 'field': 'url_knowledgebase', 'optional': True, 'searchable': False, 'list': None}}, 
                 {'Comment': {'table': 'project', 'field': 'comment', 'optional': True, 'searchable': False, 'list': None}}, 
                 {'Project type': {'table': 'project', 'field': 'project_type', 'optional': True, 'searchable': False, 'list': ['grant', 'study']}}, 
-                {'Lab name': {'table': 'lab', 'field': 'lab_name', 'optional': True, 'searchable': True, 'list': None}}, 
-                {'Contributors': {'table': 'contributor', 'field': 'name', 'optional': True, 'searchable': True, 'list': None}}, 
+                {'Lab name': {'table': 'lab', 'field': 'lab_name', 'optional': True, 'searchable': 'Lab', 'list': None}}, 
+                {'Contributors': {'table': 'contributor', 'field': 'name', 'optional': True, 'searchable': 'Contributor', 'list': None}}, 
                 {'Is grant?': {'table': 'project', 'field': 'is_grant', 'optional': True, 'searchable': False, 'list': None, 'dict': {1: 'yes', 0: 'no'}}}, 
                 {'Grant number?': {'table': 'grant_info', 'field': 'grant_number', 'optional': True, 'searchable': False, 'list': None}}, 
                 {'Funding agency': {'table': 'grant_info', 'field': 'funding_agency', 'optional': True, 'searchable': False, 'list': None}}, 
                 {'Description URL': {'table': 'grant_info', 'field': 'description_url', 'optional': True, 'searchable': False, 'list': None}}, 
                 {'Start date': {'table': 'grant_info', 'field': 'start_date', 'optional': True, 'searchable': False, 'list': None}}, 
                 {'End date': {'table': 'grant_info', 'field': 'end_date', 'optional': True, 'searchable': False, 'list': None}}, 
-                {'Lead PI Contributor ID': {'table': 'contributor', 'field': 'name', 'optional': True, 'searchable': True, 'list': None}}
+                {'Lead PI Contributor ID': {'table': 'contributor', 'field': 'name', 'optional': True, 'searchable': 'UNCLEAR', 'list': None}}
             ],
             'Project':
             [
@@ -639,8 +648,8 @@ class InstancesWindow(QMainWindow):
                 {'Knowledgebase URL': {'table': 'project', 'field': 'url_knowledgebase', 'optional': True, 'searchable': False, 'list': None}}, 
                 {'Comment': {'table': 'project', 'field': 'comment', 'optional': True, 'searchable': False, 'list': None}}, 
                 {'Project type': {'table': 'project', 'field': 'project_type', 'optional': True, 'searchable': False, 'list': ['grant', 'study']}}, 
-                {'Lab name': {'table': 'lab', 'field': 'lab_name', 'optional': True, 'searchable': True, 'list': None}}, 
-                {'Contributors': {'table': 'contributor', 'field': 'name', 'optional': True, 'searchable': True, 'list': None}}, 
+                {'Lab name': {'table': 'QQlab', 'field': 'lab_name', 'optional': True, 'searchable': 'Lab', 'list': None}}, 
+                {'Contributors': {'table': 'contributor', 'field': 'name', 'optional': True, 'searchable': 'Contributor', 'list': None}}, 
                 {'Is grant?': {'table': 'project', 'field': 'is_grant', 'optional': True, 'searchable': False, 'list': None, 'dict': {1: 'yes', 0: 'no'}}}, 
             ],
             'Lab':
@@ -779,7 +788,7 @@ def manual_login():
 
 def hack(conn, window):
     name = "Project"
-    instance = [{'Short_name': {'table': 'project', 'field': 'short_name', 'optional': True, 'searchable': False, 'list': None}}, {'Title': {'table': 'project', 'field': 'title', 'optional': True, 'searchable': False, 'list': None}}, {'Description': {'table': 'project', 'field': 'description', 'optional': True, 'searchable': False, 'list': None}}, {'Program': {'table': 'program', 'field': 'name', 'optional': True, 'searchable': False, 'list': None}}, {'Knowledgebase URL': {'table': 'project', 'field': 'url_knowledgebase', 'optional': True, 'searchable': False, 'list': None}}, {'Comment': {'table': 'project', 'field': 'comment', 'optional': True, 'searchable': False, 'list': None}}, {'Project type': {'table': 'project', 'field': 'project_type', 'optional': True, 'searchable': False, 'list': ['grant', 'study']}}, {'Lab name': {'table': 'lab', 'field': 'lab_name', 'optional': True, 'searchable': True, 'list': None}}, {'Contributors': {'table': 'contributor', 'field': 'name', 'optional': True, 'searchable': True, 'list': None}}, {'Is grant?': {'table': 'project', 'field': 'is_grant', 'optional': True, 'searchable': False, 'list': None, 'dict': {1: 'yes', 0: 'no'}}}]
+    instance = [{'Short_name': {'table': 'project', 'field': 'short_name', 'optional': True, 'searchable': False, 'list': None}}, {'Title': {'table': 'project', 'field': 'title', 'optional': True, 'searchable': False, 'list': None}}, {'Description': {'table': 'project', 'field': 'description', 'optional': True, 'searchable': False, 'list': None}}, {'Program': {'table': 'program', 'field': 'name', 'optional': True, 'searchable': False, 'list': None}}, {'Knowledgebase URL': {'table': 'project', 'field': 'url_knowledgebase', 'optional': True, 'searchable': False, 'list': None}}, {'Comment': {'table': 'project', 'field': 'comment', 'optional': True, 'searchable': False, 'list': None}}, {'Project type': {'table': 'project', 'field': 'project_type', 'optional': True, 'searchable': False, 'list': ['grant', 'study']}}, {'Lab name': {'table': 'lab', 'field': 'lab_name', 'optional': True, 'searchable': 'Lab', 'list': None}}, {'Contributors': {'table': 'contributor', 'field': 'name', 'optional': True, 'searchable': 'Contributor', 'list': None}}, {'Is grant?': {'table': 'project', 'field': 'is_grant', 'optional': True, 'searchable': False, 'list': None, 'dict': {1: 'yes', 0: 'no'}}}]
 
     window = InstanceFilter(conn, name, instance, window)
     window.show()
